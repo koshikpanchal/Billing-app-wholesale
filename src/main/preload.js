@@ -1,9 +1,13 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
-  // Database Status
+  // Database Status & Backup/Restore
   db: {
     getStatus: () => ipcRenderer.invoke('db:getStatus'),
+    getPath: () => ipcRenderer.invoke('db:getPath'),
+    openFolder: () => ipcRenderer.invoke('db:openFolder'),
+    backup: () => ipcRenderer.invoke('db:backup'),
+    restore: () => ipcRenderer.invoke('db:restore'),
   },
 
   // Products
@@ -69,6 +73,8 @@ contextBridge.exposeInMainWorld('api', {
     showInFolder: (filePath) => ipcRenderer.invoke('files:showInFolder', filePath),
     openPath: (targetPath) => ipcRenderer.invoke('files:openPath', targetPath),
     getBillsBaseDir: () => ipcRenderer.invoke('files:getBillsBaseDir'),
+    getBackupBaseDir: () => ipcRenderer.invoke('files:getBackupBaseDir'),
+    openBackupFolder: () => ipcRenderer.invoke('files:openBackupFolder'),
   },
 
   // Printing

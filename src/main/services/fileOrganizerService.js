@@ -112,8 +112,63 @@ function openPath(targetPath) {
   return { success: false, error: 'Path not found' };
 }
 
+function getBackupBaseDir() {
+  let docsPath = path.join(process.cwd(), 'Documents');
+  if (process.versions && process.versions.electron) {
+    try {
+      const electron = require('electron');
+      const app = electron?.app || electron;
+      if (app && typeof app.getPath === 'function') {
+        docsPath = app.getPath('documents');
+      }
+    } catch (err) {}
+  }
+
+  const backupDir = path.join(docsPath, 'JainHosiery', 'backup');
+  if (!fs.existsSync(backupDir)) {
+    fs.mkdirSync(backupDir, { recursive: true });
+  }
+  return backupDir;
+}
+
+function createDailyAutoBackup(entryDate, srcDbPath) {
+  try {
+    const dateStr = entryDate || new Date().toISOString().split('T')[0];
+    const backupDir = getBackupBaseDir();
+    const backupFileName = `jain_hosiery_backup_${dateStr}.sqlite`;
+    const targetPath = path.join(backupDir, backupFileName);
+
+    if (fs.existsSync(srcDbPath)) {
+      fs.copyFileSync(srcDbPath, targetPath);
+      console.log(`[AutoBackup] Daily backup saved to: ${targetPath}`);
+
+      // Also save a local backup copy in database directory's backup folder
+      try {
+        const localDir = path.join(path.dirname(srcDbPath), 'backup');
+        if (!fs.existsSync(localDir)) {
+          fs.mkdirSync(localDir, { recursive: true });
+        }
+        fs.copyFileSync(srcDbPath, path.join(localDir, backupFileName));
+      } catch (err) {}
+
+      return {
+        success: true,
+        backupDir,
+        backupFileName,
+        backupFilePath: targetPath,
+      };
+    }
+    return { success: false, error: 'Source database file not found' };
+  } catch (err) {
+    console.error('[AutoBackup] Error creating daily backup:', err);
+    return { success: false, error: err.message };
+  }
+}
+
 module.exports = {
   getBillsBaseDir,
+  getBackupBaseDir,
+  createDailyAutoBackup,
   getTargetFolder,
   getBillFilePath,
   saveBillDocument,

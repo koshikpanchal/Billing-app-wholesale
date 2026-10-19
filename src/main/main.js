@@ -1,6 +1,7 @@
 require('dotenv').config();
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { initDatabase, getDb, getDatabasePath } = require('./database/db');
 
 // Repositories
@@ -72,7 +73,7 @@ app.on('window-all-closed', () => {
 });
 
 function setupIpcHandlers() {
-  // --- Database Status ---
+  // --- Database Status & Migration ---
   ipcMain.handle('db:getStatus', () => {
     try {
       const database = getDb();
@@ -88,6 +89,87 @@ function setupIpcHandlers() {
         error: err.message,
         dbName: process.env.DB_NAME || 'jain_hosiery.sqlite',
       };
+    }
+  });
+
+  ipcMain.handle('db:getPath', () => getDatabasePath());
+
+  ipcMain.handle('db:openFolder', () => {
+    const dbPath = getDatabasePath();
+    if (fs.existsSync(dbPath)) {
+      shell.showItemInFolder(dbPath);
+    } else {
+      shell.openPath(path.dirname(dbPath));
+    }
+    return { success: true };
+  });
+
+  ipcMain.handle('db:backup', async () => {
+    try {
+      const srcPath = getDatabasePath();
+      const defaultName = `jain_hosiery_backup_${new Date().toISOString().split('T')[0]}.sqlite`;
+      const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+        title: 'Export / Backup SQLite Database (For Laptop Transfer)',
+        defaultPath: defaultName,
+        filters: [{ name: 'SQLite Database (*.sqlite)', extensions: ['sqlite', 'db'] }],
+      });
+
+      if (canceled || !filePath) return { success: false, cancelled: true };
+
+      const database = getDb();
+      if (database) {
+        try {
+          database.pragma('wal_checkpoint(TRUNCATE)');
+        } catch (e) {}
+      }
+
+      fs.copyFileSync(srcPath, filePath);
+      return { success: true, destination: filePath };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('db:restore', async () => {
+    try {
+      const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+        title: 'Select Backup Database to Restore',
+        filters: [{ name: 'SQLite Database (*.sqlite, *.db)', extensions: ['sqlite', 'db'] }],
+        properties: ['openFile'],
+      });
+
+      if (canceled || !filePaths || filePaths.length === 0) {
+        return { success: false, cancelled: true };
+      }
+
+      const backupFile = filePaths[0];
+      const targetPath = getDatabasePath();
+
+      const Database = require('better-sqlite3');
+      const testDb = new Database(backupFile, { readonly: true });
+      const testCount = testDb.prepare("SELECT count(*) as c FROM sqlite_master WHERE type='table' AND name='products'").get();
+      testDb.close();
+
+      if (!testCount || testCount.c === 0) {
+        return { success: false, error: 'Selected file is not a valid Jain Hosiery database backup.' };
+      }
+
+      const database = getDb();
+      if (database) {
+        try {
+          database.close();
+        } catch (e) {}
+      }
+
+      if (fs.existsSync(`${targetPath}-wal`)) fs.unlinkSync(`${targetPath}-wal`);
+      if (fs.existsSync(`${targetPath}-shm`)) fs.unlinkSync(`${targetPath}-shm`);
+
+      fs.copyFileSync(backupFile, targetPath);
+      initDatabase();
+
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
     }
   });
 
@@ -128,7 +210,23 @@ function setupIpcHandlers() {
   ipcMain.handle('register:recordExpense', (_, data) => cashRegisterRepo.recordExpense(data));
   ipcMain.handle('register:getExpenses', (_, date) => cashRegisterRepo.getExpenses(date));
   ipcMain.handle('register:updateCashTakenHome', (_, amount) => cashRegisterRepo.updateCashTakenHome(amount));
-  ipcMain.handle('register:closeDay', (_, data) => cashRegisterRepo.closeDayRegister(data));
+  ipcMain.handle('register:closeDay', async (_, data) => {
+    const closed = cashRegisterRepo.closeDayRegister(data);
+    try {
+      const db = getDb();
+      if (db) {
+        db.pragma('wal_checkpoint(TRUNCATE)');
+      }
+    } catch (walErr) {
+      console.error('[Main] WAL checkpoint before backup error:', walErr);
+    }
+
+    const backupResult = fileOrganizer.createDailyAutoBackup(closed?.entry_date, getDatabasePath());
+    return {
+      ...closed,
+      autoBackup: backupResult,
+    };
+  });
   ipcMain.handle('register:getDashboardStats', () => cashRegisterRepo.getDashboardStats());
 
   // --- Batch GST Generation ---
@@ -174,6 +272,8 @@ function setupIpcHandlers() {
   ipcMain.handle('files:showInFolder', (_, filePath) => fileOrganizer.showItemInFolder(filePath));
   ipcMain.handle('files:openPath', (_, targetPath) => fileOrganizer.openPath(targetPath));
   ipcMain.handle('files:getBillsBaseDir', () => fileOrganizer.getBillsBaseDir());
+  ipcMain.handle('files:getBackupBaseDir', () => fileOrganizer.getBackupBaseDir());
+  ipcMain.handle('files:openBackupFolder', () => fileOrganizer.openPath(fileOrganizer.getBackupBaseDir()));
 
   // --- Native Printing ---
   ipcMain.handle('print:bill', async (_, htmlContent) => {

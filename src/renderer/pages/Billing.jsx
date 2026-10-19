@@ -1,9 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plus, Trash2, Printer, Check, Search, User, CreditCard, 
-  IndianRupee, FileText, FolderOpen, AlertCircle, RefreshCw, X
+  IndianRupee, FileText, FolderOpen, AlertCircle, RefreshCw, X,
+  Barcode, Edit3, PackagePlus
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+
+/**
+ * Smart suggested code generator for manual products
+ */
+function generateSuggestedItemCode(name, existingProducts = []) {
+  if (!name || !name.trim()) return `JH-${Date.now().toString().slice(-4)}`;
+  const clean = name.trim();
+  
+  // Check if name has shorthand style like s-20-200 or JH-102
+  const firstWord = clean.split(/\s+/)[0];
+  if (/^[a-zA-Z]{1,3}[-_]\d+/i.test(firstWord)) {
+    const candidate = firstWord.toUpperCase();
+    if (!existingProducts.some(p => p.item_code?.toUpperCase() === candidate)) {
+      return candidate;
+    }
+  }
+
+  const letters = clean.replace(/[^a-zA-Z0-9\s]/g, '').split(/\s+/).map(w => w[0]).join('').slice(0, 3).toUpperCase() || 'JH';
+  let counter = 101;
+  while (existingProducts.some(p => p.item_code?.toUpperCase() === `${letters}-${counter}`)) {
+    counter++;
+  }
+  return `${letters}-${counter}`;
+}
 
 /**
  * Wholesale Product & Pack Search Matcher
@@ -104,12 +129,27 @@ export default function Billing({ onBillSaved }) {
   const [partyList, setPartyList] = useState([]);
   const [settings, setSettings] = useState(null);
 
-  // Item Fast-Entry Row
+  // Item Entry Mode: 'code' (By Product Code / Search) vs 'manual' (Manual Item Entry)
+  const [entryMode, setEntryMode] = useState('code');
+
+  // Method 1: Product Code / Search State
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [itemQty, setItemQty] = useState(1);
   const [itemPrice, setItemPrice] = useState('');
   const [itemDiscount, setItemDiscount] = useState(0);
+
+  // Method 2: Manual Item Process State
+  const [manualItemName, setManualItemName] = useState('');
+  const [manualUnit, setManualUnit] = useState('Set');
+  const [manualQty, setManualQty] = useState(1);
+  const [manualPrice, setManualPrice] = useState('');
+  const [manualDiscount, setManualDiscount] = useState(0);
+
+  // Prompt / Modal State for Adding Manual Product to Master
+  const [showManualPromptModal, setShowManualPromptModal] = useState(false);
+  const [pendingManualItem, setPendingManualItem] = useState(null);
+  const [manualSavedNotice, setManualSavedNotice] = useState(null);
 
   // Product Autocomplete & Clash Dropdown
   const [productSuggestions, setProductSuggestions] = useState([]);
@@ -132,6 +172,10 @@ export default function Billing({ onBillSaved }) {
   const searchInputRef = useRef(null);
   const qtyInputRef = useRef(null);
   const customerInputRef = useRef(null);
+  const manualNameRef = useRef(null);
+  const manualQtyRef = useRef(null);
+  const manualPriceRef = useRef(null);
+  const codePromptInputRef = useRef(null);
 
   // Load Initial Data
   const loadInitial = async () => {
@@ -298,27 +342,11 @@ export default function Billing({ onBillSaved }) {
     }
   };
 
-  // Add Item to Bill
-  const handleAddItem = () => {
-    if (!selectedProduct && !searchQuery.trim()) {
-      alert('Please enter or select a product');
-      return;
-    }
-
-    const prodName = selectedProduct ? selectedProduct.name : searchQuery.trim();
-    const unitPrice = parseFloat(itemPrice) || (selectedProduct ? selectedProduct.selling_price : 0);
-    const qty = parseFloat(itemQty) || 1;
-    
-    // In Cash Memo, discount is strictly 0 (wholesale net rate)
-    const discAmt = docType === 'GST_INVOICE' ? (parseFloat(itemDiscount) || 0) : 0;
-    
-    // In GST Invoice, use user-selected gstBillRate; in Cash Memo, 0%
+  // Helper: Commit a line item to the bill
+  const commitLineItem = ({ productId, name, unitPrice, qty, discAmt, unit, hsn }) => {
     const appliedGst = docType === 'GST_INVOICE' ? (parseFloat(gstBillRate) || 5.0) : 0.0;
-
     const rawTotal = unitPrice * qty;
     const taxable = Math.max(0, rawTotal - discAmt);
-    
-    // Intra-state (CGST + SGST) vs Inter-state (IGST)
     const isInterState = docType === 'GST_INVOICE' && customerState.toLowerCase() !== (settings?.state || 'delhi').toLowerCase();
     
     let cgst = 0;
@@ -338,10 +366,10 @@ export default function Billing({ onBillSaved }) {
     const lineTotal = taxable + cgst + sgst + igst;
 
     const newItem = {
-      product_id: selectedProduct ? selectedProduct.id : null,
-      item_name: prodName,
-      hsn_code: selectedProduct ? (selectedProduct.hsn_code || '6115') : '6115',
-      unit: selectedProduct ? (selectedProduct.unit || 'Set') : 'Set',
+      product_id: productId || null,
+      item_name: name,
+      hsn_code: hsn || '6115',
+      unit: unit || 'Set',
       quantity: qty,
       unit_price: unitPrice,
       discount_amount: discAmt,
@@ -354,19 +382,161 @@ export default function Billing({ onBillSaved }) {
       total_amount: lineTotal,
     };
 
-    setItems([...items, newItem]);
+    setItems(prev => [...prev, newItem]);
+  };
 
-    // Reset item input
-    setSelectedProduct(null);
-    setSearchQuery('');
-    setItemQty(1);
-    setItemPrice('');
-    setItemDiscount(0);
-    setShowProductDropdown(false);
-
-    if (searchInputRef.current) {
-      searchInputRef.current.focus();
+  // Add Item to Bill (Method 1: From Product Code / Search)
+  const handleAddItem = () => {
+    if (!selectedProduct && !searchQuery.trim()) {
+      alert('Please enter product code or item name');
+      return;
     }
+
+    // 1. If catalog product is chosen
+    if (selectedProduct) {
+      const prodName = selectedProduct.name;
+      const unitPrice = parseFloat(itemPrice) || selectedProduct.selling_price || 0;
+      const qty = parseFloat(itemQty) || 1;
+      const discAmt = docType === 'GST_INVOICE' ? (parseFloat(itemDiscount) || 0) : 0;
+      
+      commitLineItem({
+        productId: selectedProduct.id,
+        name: prodName,
+        unitPrice,
+        qty,
+        discAmt,
+        unit: selectedProduct.unit || 'Set',
+        hsn: selectedProduct.hsn_code || '6115',
+      });
+
+      setSelectedProduct(null);
+      setSearchQuery('');
+      setItemQty(1);
+      setItemPrice('');
+      setItemDiscount(0);
+      setShowProductDropdown(false);
+      if (searchInputRef.current) searchInputRef.current.focus();
+      return;
+    }
+
+    // 2. If user typed a manual item in search bar without selecting an existing product
+    const cleanName = searchQuery.trim();
+    const unitPrice = parseFloat(itemPrice);
+    if (isNaN(unitPrice) || unitPrice <= 0) {
+      alert('Please enter a valid selling price for this manual item');
+      return;
+    }
+
+    const qty = parseFloat(itemQty) || 1;
+    const discAmt = docType === 'GST_INVOICE' ? (parseFloat(itemDiscount) || 0) : 0;
+    const suggestedCode = generateSuggestedItemCode(cleanName, productList);
+
+    setPendingManualItem({
+      name: cleanName,
+      price: unitPrice,
+      unit: 'Set',
+      qty: qty,
+      discAmt: discAmt,
+      item_code: suggestedCode,
+      fromMode: 'code',
+    });
+    setShowManualPromptModal(true);
+  };
+
+  // Add Item to Bill (Method 2: Manual Item Entry Process)
+  const handleAddManualItem = () => {
+    if (!manualItemName.trim()) {
+      alert('Please enter item name');
+      manualNameRef.current?.focus();
+      return;
+    }
+    const price = parseFloat(manualPrice);
+    if (isNaN(price) || price <= 0) {
+      alert('Please enter a valid selling price');
+      manualPriceRef.current?.focus();
+      return;
+    }
+
+    const cleanName = manualItemName.trim();
+    const discAmt = docType === 'GST_INVOICE' ? (parseFloat(manualDiscount) || 0) : 0;
+    const qty = parseFloat(manualQty) || 1;
+    const suggestedCode = generateSuggestedItemCode(cleanName, productList);
+
+    setPendingManualItem({
+      name: cleanName,
+      price: price,
+      unit: manualUnit || 'Set',
+      qty: qty,
+      discAmt: discAmt,
+      item_code: suggestedCode,
+      fromMode: 'manual',
+    });
+    setShowManualPromptModal(true);
+  };
+
+  // Handle User Response to Prompt: "Add this product directly into Products & Stock?"
+  const handleConfirmManualAdd = async (saveToMaster) => {
+    if (!pendingManualItem) return;
+    const p = pendingManualItem;
+    let finalProductId = null;
+
+    if (saveToMaster) {
+      try {
+        const code = p.item_code?.trim() || generateSuggestedItemCode(p.name, productList);
+        const created = await window.api.products.create({
+          name: p.name,
+          item_code: code,
+          selling_price: p.price,
+          cost_price: 0,
+          unit: p.unit || 'Set',
+          hsn_code: '6115',
+          gst_rate: docType === 'GST_INVOICE' ? (parseFloat(gstBillRate) || 5.0) : 5.0,
+          is_stock_tracked: 0,
+          current_stock: 0,
+          min_stock_alert: 0,
+        });
+
+        if (created && created.id) {
+          finalProductId = created.id;
+          setProductList(prev => [...prev, created]);
+          setManualSavedNotice(`✓ "${created.name}" [${created.item_code}] saved to Products & Stock!`);
+          setTimeout(() => setManualSavedNotice(null), 4000);
+        }
+      } catch (err) {
+        console.error('Failed to save manual product to master:', err);
+        alert('Could not save to Products catalog: ' + err.message);
+      }
+    }
+
+    commitLineItem({
+      productId: finalProductId,
+      name: p.name,
+      unitPrice: p.price,
+      qty: p.qty,
+      discAmt: p.discAmt,
+      unit: p.unit,
+      hsn: '6115',
+    });
+
+    // Reset fields in whichever mode added it
+    if (p.fromMode === 'code') {
+      setSelectedProduct(null);
+      setSearchQuery('');
+      setItemQty(1);
+      setItemPrice('');
+      setItemDiscount(0);
+      setShowProductDropdown(false);
+      setTimeout(() => searchInputRef.current?.focus(), 50);
+    } else {
+      setManualItemName('');
+      setManualQty(1);
+      setManualPrice('');
+      setManualDiscount(0);
+      setTimeout(() => manualNameRef.current?.focus(), 50);
+    }
+
+    setPendingManualItem(null);
+    setShowManualPromptModal(false);
   };
 
   const handleRemoveItem = (index) => {
@@ -462,6 +632,18 @@ export default function Billing({ onBillSaved }) {
     setPaidAmount('');
     setSavedBillResult(null);
     setShowPreviewModal(false);
+    setSearchQuery('');
+    setSelectedProduct(null);
+    setItemQty(1);
+    setItemPrice('');
+    setItemDiscount(0);
+    setManualItemName('');
+    setManualUnit('Set');
+    setManualQty(1);
+    setManualPrice('');
+    setManualDiscount(0);
+    setPendingManualItem(null);
+    setShowManualPromptModal(false);
 
     if (window.api) {
       const nextNum = await window.api.invoices.getNextNumber(docType);
@@ -695,128 +877,262 @@ export default function Billing({ onBillSaved }) {
             )}
           </div>
 
-          {/* Item Fast-Entry Box (Wholesale Shorthand Enabled) */}
+          {/* Item Fast-Entry Box (Dual Method: Product Code vs Manual Entry) */}
           <div className="card" style={{ padding: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>{t('addProducts')}</span>
-              <span style={{ fontSize: 11, color: 'var(--primary)', textTransform: 'none', fontWeight: 600 }}>
-                Wholesale codes: <code>s-20-200</code>, <code>s-26-200</code>, <code>JH-101</code>
+            {/* Mode Switcher Bar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: 'inline-flex', background: 'var(--bg-main, #0f172a)', padding: 3, borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${entryMode === 'code' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, borderRadius: 6 }}
+                  onClick={() => {
+                    setEntryMode('code');
+                    setTimeout(() => searchInputRef.current?.focus(), 50);
+                  }}
+                >
+                  <Barcode size={15} /> {t('byProductCode')}
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${entryMode === 'manual' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, borderRadius: 6 }}
+                  onClick={() => {
+                    setEntryMode('manual');
+                    setTimeout(() => manualNameRef.current?.focus(), 50);
+                  }}
+                >
+                  <Edit3 size={15} /> {t('manualItemEntry')}
+                </button>
+              </div>
+
+              <span style={{ fontSize: 11.5, color: entryMode === 'code' ? 'var(--primary)' : '#38bdf8', fontWeight: 600 }}>
+                {entryMode === 'code' ? (
+                  <>Wholesale codes: <code>s-20-200</code>, <code>s-26-200</code>, <code>JH-101</code></>
+                ) : (
+                  <>{t('manualEntrySub')}</>
+                )}
               </span>
             </div>
 
-            {/* In Cash Memo: 4 columns (Product Search, Qty, Price, Add Button) - NO DISCOUNT FIELD */}
-            {/* In GST Invoice: 5 columns (Product Search, Qty, Price, Disc, Add Button) */}
-            <div style={{ 
-              display: 'grid', 
-              gridTemplateColumns: docType === 'GST_INVOICE' ? '2.2fr 80px 105px 85px 95px' : '2.4fr 85px 110px 95px', 
-              gap: 10, 
-              alignItems: 'flex-end' 
-            }}>
-              {/* Product Autocomplete Search Input */}
-              <div className="form-group autocomplete-wrapper">
-                <label className="form-label">{t('searchProductPlaceholder')}</label>
-                <div style={{ position: 'relative' }}>
-                  <input 
-                    ref={searchInputRef}
-                    type="text" 
-                    className="input"
-                    placeholder="Type code like s-20-200 or product name..."
-                    value={searchQuery}
-                    onChange={(e) => handleSearchChange(e.target.value)}
-                    onKeyDown={handleProductKeyDown}
-                    onFocus={() => {
-                      if (productSuggestions.length > 0) setShowProductDropdown(true);
-                    }}
-                  />
-                  {selectedProduct && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedProduct(null);
-                        setSearchQuery('');
-                        setItemPrice('');
-                        setShowProductDropdown(false);
+            {/* Notification when manual product was saved into Products & Stock */}
+            {manualSavedNotice && (
+              <div style={{
+                marginBottom: 10,
+                padding: '7px 12px',
+                background: 'rgba(16, 185, 129, 0.15)',
+                border: '1px solid #10b981',
+                borderRadius: 6,
+                color: '#34d399',
+                fontSize: 12,
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6
+              }}>
+                <Check size={14} /> {manualSavedNotice}
+              </div>
+            )}
+
+            {/* METHOD 1: By Product Code / Search */}
+            {entryMode === 'code' ? (
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: docType === 'GST_INVOICE' ? '2.2fr 80px 105px 85px 95px' : '2.4fr 85px 110px 95px', 
+                gap: 10, 
+                alignItems: 'flex-end' 
+              }}>
+                {/* Product Autocomplete Search Input */}
+                <div className="form-group autocomplete-wrapper">
+                  <label className="form-label">{t('searchProductPlaceholder')}</label>
+                  <div style={{ position: 'relative' }}>
+                    <input 
+                      ref={searchInputRef}
+                      type="text" 
+                      className="input"
+                      placeholder="Type code like s-20-200 or product name..."
+                      value={searchQuery}
+                      onChange={(e) => handleSearchChange(e.target.value)}
+                      onKeyDown={handleProductKeyDown}
+                      onFocus={() => {
+                        if (productSuggestions.length > 0) setShowProductDropdown(true);
                       }}
-                      style={{ position: 'absolute', right: 8, top: 10, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)' }}
-                      title="Clear"
-                    >
-                      <X size={14} />
-                    </button>
+                    />
+                    {selectedProduct && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedProduct(null);
+                          setSearchQuery('');
+                          setItemPrice('');
+                          setShowProductDropdown(false);
+                        }}
+                        style={{ position: 'absolute', right: 8, top: 10, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)' }}
+                        title="Clear"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Wholesale Clash Autocomplete Dropdown List */}
+                  {showProductDropdown && productSuggestions.length > 0 && (
+                    <ul className="autocomplete-dropdown">
+                      {productSuggestions.map((prod, idx) => (
+                        <li 
+                          key={prod.id}
+                          className={`autocomplete-item ${idx === highlightedProdIdx ? 'active' : ''}`}
+                          onClick={() => selectProductItem(prod)}
+                        >
+                          <div className="autocomplete-item-left">
+                            <span className="autocomplete-code-badge">{prod.item_code}</span>
+                            <div>
+                              <div className="autocomplete-name">{prod.name}</div>
+                              {prod.description && <div className="autocomplete-desc">{prod.description}</div>}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div className="autocomplete-price">₹{prod.selling_price.toFixed(2)}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>{prod.unit || 'Set'}</div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   )}
                 </div>
 
-                {/* Wholesale Clash Autocomplete Dropdown List */}
-                {showProductDropdown && productSuggestions.length > 0 && (
-                  <ul className="autocomplete-dropdown">
-                    {productSuggestions.map((prod, idx) => (
-                      <li 
-                        key={prod.id}
-                        className={`autocomplete-item ${idx === highlightedProdIdx ? 'active' : ''}`}
-                        onClick={() => selectProductItem(prod)}
-                      >
-                        <div className="autocomplete-item-left">
-                          <span className="autocomplete-code-badge">{prod.item_code}</span>
-                          <div>
-                            <div className="autocomplete-name">{prod.name}</div>
-                            {prod.description && <div className="autocomplete-desc">{prod.description}</div>}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <div className="autocomplete-price">₹{prod.selling_price.toFixed(2)}</div>
-                          <div style={{ fontSize: 10, color: 'var(--text-dim)' }}>{prod.unit || 'Set'}</div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              {/* Quantity */}
-              <div className="form-group">
-                <label className="form-label">{t('qty')}</label>
-                <input 
-                  ref={qtyInputRef}
-                  type="number" 
-                  className="input input-mono"
-                  min="1"
-                  value={itemQty}
-                  onChange={(e) => setItemQty(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddItem(); }}
-                />
-              </div>
-
-              {/* Price */}
-              <div className="form-group">
-                <label className="form-label">{t('price')} (₹)</label>
-                <input 
-                  type="number" 
-                  className="input input-mono"
-                  placeholder="Price"
-                  value={itemPrice}
-                  onChange={(e) => setItemPrice(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddItem(); }}
-                />
-              </div>
-
-              {/* Discount Field: ONLY PRESENT IN GST INVOICE MODE */}
-              {docType === 'GST_INVOICE' && (
+                {/* Quantity */}
                 <div className="form-group">
-                  <label className="form-label">{t('disc')} (₹)</label>
+                  <label className="form-label">{t('qty')}</label>
                   <input 
+                    ref={qtyInputRef}
                     type="number" 
                     className="input input-mono"
-                    value={itemDiscount}
-                    onChange={(e) => setItemDiscount(e.target.value)}
+                    min="1"
+                    value={itemQty}
+                    onChange={(e) => setItemQty(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleAddItem(); }}
                   />
                 </div>
-              )}
 
-              {/* Add Button */}
-              <button className="btn btn-primary" onClick={handleAddItem} style={{ height: 40, fontWeight: 700 }}>
-                <Plus size={16} /> {t('addBtn')}
-              </button>
-            </div>
+                {/* Price */}
+                <div className="form-group">
+                  <label className="form-label">{t('price')} (₹)</label>
+                  <input 
+                    type="number" 
+                    className="input input-mono" 
+                    placeholder="Price"
+                    value={itemPrice}
+                    onChange={(e) => setItemPrice(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddItem(); }}
+                  />
+                </div>
+
+                {/* Discount Field (GST Invoice mode only) */}
+                {docType === 'GST_INVOICE' && (
+                  <div className="form-group">
+                    <label className="form-label">{t('disc')} (₹)</label>
+                    <input 
+                      type="number" 
+                      className="input input-mono" 
+                      value={itemDiscount}
+                      onChange={(e) => setItemDiscount(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleAddItem(); }}
+                    />
+                  </div>
+                )}
+
+                {/* Add Button */}
+                <button className="btn btn-primary" onClick={handleAddItem} style={{ height: 40, fontWeight: 700 }}>
+                  <Plus size={16} /> {t('addBtn')}
+                </button>
+              </div>
+            ) : (
+              /* METHOD 2: Manual Item Entry Process (For unentered shop stock) */
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: docType === 'GST_INVOICE' ? '2fr 85px 75px 105px 85px 95px' : '2.3fr 90px 80px 110px 95px', 
+                gap: 10, 
+                alignItems: 'flex-end' 
+              }}>
+                {/* Manual Item Name */}
+                <div className="form-group">
+                  <label className="form-label">{t('itemName')}</label>
+                  <input 
+                    ref={manualNameRef}
+                    type="text" 
+                    className="input"
+                    placeholder={t('manualItemNamePlaceholder')}
+                    value={manualItemName}
+                    onChange={(e) => setManualItemName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddManualItem(); }}
+                  />
+                </div>
+
+                {/* Unit Selector */}
+                <div className="form-group">
+                  <label className="form-label">{t('unit')}</label>
+                  <select 
+                    className="select"
+                    value={manualUnit}
+                    onChange={(e) => setManualUnit(e.target.value)}
+                  >
+                    <option value="Set">Set</option>
+                    <option value="Pcs">Pcs</option>
+                    <option value="Dozen">Dozen</option>
+                    <option value="Box">Box</option>
+                    <option value="Mtr">Mtr</option>
+                  </select>
+                </div>
+
+                {/* Quantity */}
+                <div className="form-group">
+                  <label className="form-label">{t('qty')}</label>
+                  <input 
+                    ref={manualQtyRef}
+                    type="number" 
+                    className="input input-mono"
+                    min="1"
+                    value={manualQty}
+                    onChange={(e) => setManualQty(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddManualItem(); }}
+                  />
+                </div>
+
+                {/* Price */}
+                <div className="form-group">
+                  <label className="form-label">{t('price')} (₹)</label>
+                  <input 
+                    ref={manualPriceRef}
+                    type="number" 
+                    className="input input-mono" 
+                    placeholder="Rate"
+                    value={manualPrice}
+                    onChange={(e) => setManualPrice(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddManualItem(); }}
+                  />
+                </div>
+
+                {/* Discount Field (GST Invoice mode only) */}
+                {docType === 'GST_INVOICE' && (
+                  <div className="form-group">
+                    <label className="form-label">{t('disc')} (₹)</label>
+                    <input 
+                      type="number" 
+                      className="input input-mono" 
+                      value={manualDiscount}
+                      onChange={(e) => setManualDiscount(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleAddManualItem(); }}
+                    />
+                  </div>
+                )}
+
+                {/* Add Button */}
+                <button className="btn btn-primary" onClick={handleAddManualItem} style={{ height: 40, fontWeight: 700 }}>
+                  <Plus size={16} /> {t('addBtn')}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Line Items Table */}
@@ -852,6 +1168,11 @@ export default function Billing({ onBillSaved }) {
                       <td style={{ color: 'var(--text-dim)', textAlign: 'center' }}>{idx + 1}</td>
                       <td>
                         <strong style={{ color: 'var(--text-main)' }}>{it.item_name}</strong>
+                        {!it.product_id && (
+                          <span style={{ marginLeft: 6, fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', fontWeight: 600 }}>
+                            Manual
+                          </span>
+                        )}
                       </td>
                       <td style={{ textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
                         {it.quantity} {it.unit}
@@ -1028,7 +1349,7 @@ export default function Billing({ onBillSaved }) {
                   onClick={() => handleSaveInvoice(true)}
                   disabled={isSaving}
                 >
-                  <Printer size={18} /> {isSaving ? 'Processing...' : `${t('savePrintBill')} (2 Copies on A4)`}
+                  <Printer size={18} /> {isSaving ? 'Processing...' : t('savePrintBill')}
                 </button>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -1115,6 +1436,98 @@ export default function Billing({ onBillSaved }) {
               </button>
               <button className="btn btn-success" onClick={handleResetForm}>
                 {t('newBillKey')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Prompt: Ask user if they want to save manual product directly into Products & Stock */}
+      {showManualPromptModal && pendingManualItem && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: 490 }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <PackagePlus size={18} color="var(--primary)" />
+                <span className="modal-title">
+                  {t('saveToCatalogTitle')}
+                </span>
+              </div>
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm" 
+                onClick={() => handleConfirmManualAdd(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <p style={{ fontSize: 13.5, color: '#cbd5e1', lineHeight: 1.5 }}>
+                You entered a manual product: <strong style={{ color: '#fff' }}>"{pendingManualItem.name}"</strong> at <strong style={{ color: '#38bdf8' }}>₹{pendingManualItem.price.toFixed(2)}</strong>.
+                <br /><br />
+                Do you want to add this product directly into <strong>Products & Stock</strong> master so you can search and bill it by code next time?
+              </p>
+
+              <div style={{ 
+                background: 'var(--bg-main, #0f172a)', 
+                padding: 12, 
+                borderRadius: 8, 
+                border: '1px solid var(--border-color)', 
+                display: 'grid', 
+                gridTemplateColumns: '1.3fr 1fr', 
+                gap: 10 
+              }}>
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: 11 }}>Item Code</label>
+                  <input 
+                    ref={codePromptInputRef}
+                    type="text" 
+                    className="input input-mono" 
+                    value={pendingManualItem.item_code}
+                    onChange={(e) => setPendingManualItem(prev => ({ ...prev, item_code: e.target.value.toUpperCase() }))}
+                    placeholder="e.g. S-20-200 or JH-105"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleConfirmManualAdd(true);
+                      if (e.key === 'Escape') handleConfirmManualAdd(false);
+                    }}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" style={{ fontSize: 11 }}>Unit</label>
+                  <select 
+                    className="select"
+                    value={pendingManualItem.unit}
+                    onChange={(e) => setPendingManualItem(prev => ({ ...prev, unit: e.target.value }))}
+                  >
+                    <option value="Set">Set</option>
+                    <option value="Pcs">Pcs</option>
+                    <option value="Dozen">Dozen</option>
+                    <option value="Box">Box</option>
+                    <option value="Mtr">Mtr</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={() => handleConfirmManualAdd(false)}
+              >
+                {t('noJustBill')}
+              </button>
+
+              <button 
+                type="button" 
+                className="btn btn-success" 
+                style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6 }}
+                onClick={() => handleConfirmManualAdd(true)}
+                autoFocus
+              >
+                <Check size={16} /> {t('yesSaveProduct')}
               </button>
             </div>
           </div>

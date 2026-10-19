@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Wallet, IndianRupee, ArrowUpRight, ArrowDownLeft, 
-  Home, CheckCircle, AlertTriangle, Plus, Lock, Calendar 
+  Home, CheckCircle, AlertTriangle, Plus, Lock, Calendar, FolderOpen 
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
@@ -94,7 +94,7 @@ export default function DailyRegister() {
     }
 
     const confirm = window.confirm(
-      'Are you sure you want to close the cash register for today? This balance will automatically carry forward as tomorrow morning opening cash.'
+      'Are you sure you want to close the cash register for today? This balance will automatically carry forward as tomorrow morning opening cash, and a full database backup will automatically be saved to the backup folder.'
     );
     if (!confirm) return;
 
@@ -104,7 +104,12 @@ export default function DailyRegister() {
         notes: closingNotes,
       });
       setRegister(updated);
-      alert('Register closed for today! Opening cash for tomorrow has been secured.');
+
+      let backupMsg = '';
+      if (updated?.autoBackup?.success) {
+        backupMsg = `\n\n💾 Database automatically backed up to:\n${updated.autoBackup.backupFilePath}`;
+      }
+      alert('Register closed & locked for today! Opening cash for tomorrow has been secured.' + backupMsg);
     } catch (err) {
       alert('Error closing register: ' + err.message);
     }
@@ -141,9 +146,14 @@ export default function DailyRegister() {
             </p>
           </div>
 
-          <button className="btn btn-primary" onClick={() => setShowExpenseModal(true)}>
-            <Plus size={16} /> Record Daily Expense
-          </button>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn btn-secondary" onClick={() => window.api.files.openBackupFolder?.()}>
+              <FolderOpen size={16} /> {t('backupFolder')}
+            </button>
+            <button className="btn btn-primary" onClick={() => setShowExpenseModal(true)}>
+              <Plus size={16} /> Record Daily Expense
+            </button>
+          </div>
         </div>
       </div>
 
@@ -332,9 +342,22 @@ export default function DailyRegister() {
                 <Lock size={18} /> Close Register & Lock Day
               </button>
             ) : (
-              <div style={{ textAlign: 'center', color: '#10b981', fontWeight: 700, padding: 8 }}>
-                <CheckCircle size={18} style={{ display: 'inline', marginRight: 6 }} />
-                Day is Closed. Tomorrow morning starts with ₹{(register.actual_closing_cash || expected).toFixed(2)}.
+              <div style={{ textAlign: 'center', color: '#10b981', fontWeight: 700, padding: 12, background: 'rgba(16, 185, 129, 0.08)', borderRadius: 8, border: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+                <div>
+                  <CheckCircle size={18} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+                  Day is Closed & Locked. Tomorrow morning starts with ₹{(register.actual_closing_cash || expected).toFixed(2)}.
+                </div>
+                <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 500 }}>
+                  Automatic DB Backup: <code style={{ color: '#38bdf8' }}>jain_hosiery_backup_{register.entry_date}.sqlite</code>
+                </div>
+                <button 
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: 13, padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  onClick={() => window.api.files.openBackupFolder?.()}
+                >
+                  <FolderOpen size={15} /> {t('backupFolder')}
+                </button>
               </div>
             )}
           </div>
