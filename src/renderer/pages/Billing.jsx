@@ -826,9 +826,8 @@ export default function Billing({ onBillSaved }) {
                 <tr>
                   <th style={{ width: 30, textAlign: 'center' }}>#</th>
                   <th>Item Description</th>
-                  <th style={{ width: 65, textAlign: 'center' }}>HSN</th>
-                  <th style={{ width: 70, textAlign: 'center' }}>Qty</th>
-                  <th style={{ width: 85, textAlign: 'right' }}>Rate</th>
+                  <th style={{ width: 80, textAlign: 'center' }}>Qty</th>
+                  <th style={{ width: 95, textAlign: 'right' }}>Rate</th>
                   {/* Disc column only visible in GST mode */}
                   {docType === 'GST_INVOICE' && (
                     <th style={{ width: 65, textAlign: 'right' }}>Disc</th>
@@ -843,7 +842,7 @@ export default function Billing({ onBillSaved }) {
               <tbody>
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={docType === 'GST_INVOICE' ? 9 : 7} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: 32 }}>
+                    <td colSpan={docType === 'GST_INVOICE' ? 8 : 6} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: 32 }}>
                       No items added yet. Type wholesale code (e.g. <code>s-20-200</code>) above to add items.
                     </td>
                   </tr>
@@ -853,9 +852,6 @@ export default function Billing({ onBillSaved }) {
                       <td style={{ color: 'var(--text-dim)', textAlign: 'center' }}>{idx + 1}</td>
                       <td>
                         <strong style={{ color: 'var(--text-main)' }}>{it.item_name}</strong>
-                      </td>
-                      <td style={{ textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                        {it.hsn_code}
                       </td>
                       <td style={{ textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
                         {it.quantity} {it.unit}

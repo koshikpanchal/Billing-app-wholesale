@@ -14,7 +14,6 @@ function renderSingleCopy(inv, settings, copyLabel) {
       <td style="border: 1px solid #94a3b8; padding: 3px 5px;">
         <strong>${it.item_name}</strong>
       </td>
-      <td style="border: 1px solid #94a3b8; padding: 3px 5px; text-align: center;">${it.hsn_code || '6115'}</td>
       <td style="border: 1px solid #94a3b8; padding: 3px 5px; text-align: center;">${it.quantity} ${it.unit || 'Pcs'}</td>
       <td style="border: 1px solid #94a3b8; padding: 3px 5px; text-align: right;">₹${Number(it.unit_price).toFixed(2)}</td>
       ${isGst ? `<td style="border: 1px solid #94a3b8; padding: 3px 5px; text-align: center;">${it.gst_rate || 5}%</td>` : ''}
@@ -57,13 +56,12 @@ function renderSingleCopy(inv, settings, copyLabel) {
       <table class="items-table">
         <thead>
           <tr>
-            <th style="width: 25px; text-align: center;">#</th>
+            <th style="width: 28px; text-align: center;">#</th>
             <th>Item Description</th>
-            <th style="width: 55px; text-align: center;">HSN</th>
-            <th style="width: 65px; text-align: center;">Qty</th>
-            <th style="width: 75px; text-align: right;">Rate</th>
-            ${isGst ? '<th style="width: 50px; text-align: center;">GST</th>' : ''}
-            <th style="width: 85px; text-align: right;">Total (₹)</th>
+            <th style="width: 75px; text-align: center;">Qty</th>
+            <th style="width: 85px; text-align: right;">Rate</th>
+            ${isGst ? '<th style="width: 55px; text-align: center;">GST</th>' : ''}
+            <th style="width: 95px; text-align: right;">Total (₹)</th>
           </tr>
         </thead>
         <tbody>
@@ -72,10 +70,19 @@ function renderSingleCopy(inv, settings, copyLabel) {
       </table>
 
       <div class="bottom-section">
-        <div class="terms-section">
-          <strong>Terms & Conditions:</strong><br>
-          ${settings.terms_and_conditions || '1. Goods once sold will not be returned without bill. 2. Subject to Delhi jurisdiction.'}
-          ${isGst && settings.bank_account_no ? `<br><strong>Bank:</strong> ${settings.bank_name || 'SBI'} | A/c: ${settings.bank_account_no} | IFSC: ${settings.bank_ifsc || ''}` : ''}
+        <div class="bank-note-section">
+          ${isGst && settings.bank_account_no ? `
+            <div style="font-size: 9.5px; color: #334155; line-height: 1.45;">
+              <strong>Bank Details for Payment:</strong><br>
+              <strong>Bank:</strong> ${settings.bank_name || 'State Bank of India'}<br>
+              <strong>A/c No:</strong> ${settings.bank_account_no}<br>
+              <strong>IFSC:</strong> ${settings.bank_ifsc || ''}
+            </div>
+          ` : `
+            <div style="font-size: 10px; color: #64748b; font-style: italic; padding: 6px 2px;">
+              Thank you for your business!
+            </div>
+          `}
         </div>
 
         <div class="totals-section">
@@ -246,13 +253,13 @@ function generateDualCopyPrintableHtml(inv, settings = {}) {
       align-items: flex-start;
       margin-top: 2px;
     }
-    .terms-section {
+    .bank-note-section {
       flex: 1.2;
       font-size: 9px;
       color: #475569;
-      line-height: 1.3;
+      line-height: 1.35;
       border: 1px solid #e2e8f0;
-      padding: 5px 8px;
+      padding: 6px 10px;
       border-radius: 3px;
       background: #fafafa;
     }

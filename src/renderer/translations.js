@@ -6,8 +6,8 @@ export const translations = {
     appTitle: 'Jain Hosiery',
     appSubtitle: 'Shop & Billing Manager',
     offlineBadge: '100% Offline Mode',
-    dbConnected: 'Desktop SQLite Connected',
-    browserPreviewConnected: 'Browser Storage (Persistent)',
+    dbConnected: 'Database Connected',
+    dbDisconnected: 'Database Disconnected',
     openFolder: 'Bills Folder',
     
     // Navigation Tabs
@@ -178,8 +178,8 @@ export const translations = {
     appTitle: 'जैन हौजरी',
     appSubtitle: 'दुकान एवं बिलिंग मैनेजर',
     offlineBadge: '100% ऑफलाइन मोड',
-    dbConnected: 'डेस्कटॉप SQLite कनेक्टेड',
-    browserPreviewConnected: 'ब्राउज़र स्टोरेज कनेक्टेड (सुरक्षित)',
+    dbConnected: 'डेटाबेस कनेक्टेड',
+    dbDisconnected: 'डेटाबेस डिस्कनेक्टेड',
     openFolder: 'बिल फ़ोल्डर',
 
     // Navigation Tabs

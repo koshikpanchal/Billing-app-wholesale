@@ -1,3 +1,4 @@
+require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
@@ -5,6 +6,7 @@ const Database = require('better-sqlite3');
 let db = null;
 
 function getDatabasePath() {
+  const dbFileName = process.env.DB_NAME || 'jain_hosiery.sqlite';
   let userDataPath = path.join(process.cwd(), '.data');
   if (process.versions && process.versions.electron) {
     try {
@@ -19,7 +21,7 @@ function getDatabasePath() {
   if (!fs.existsSync(userDataPath)) {
     fs.mkdirSync(userDataPath, { recursive: true });
   }
-  return path.join(userDataPath, 'jain_hosiery.sqlite');
+  return path.join(userDataPath, dbFileName);
 }
 
 function initDatabase() {

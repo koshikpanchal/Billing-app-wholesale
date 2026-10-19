@@ -4,7 +4,7 @@ import {
   Calendar, FileText, CheckCircle, RefreshCw 
 } from 'lucide-react';
 
-export default function InvoiceHistory({ initialBillId }) {
+export default function InvoiceHistory() {
   const [invoices, setInvoices] = useState([]);
   const [filterType, setFilterType] = useState(''); // '' = all, or 'CASH_MEMO', 'GST_INVOICE', 'BATCH_GST'
   const [searchQuery, setSearchQuery] = useState('');
@@ -29,11 +29,6 @@ export default function InvoiceHistory({ initialBillId }) {
           limit: 100,
         });
         setInvoices(list || []);
-
-        if (initialBillId) {
-          const target = (list || []).find(i => i.id === initialBillId);
-          if (target) handleViewBill(target);
-        }
       }
     } catch (err) {
       console.error('Failed to fetch invoices:', err);

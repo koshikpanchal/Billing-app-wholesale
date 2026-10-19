@@ -1,6 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  // Database Status
+  db: {
+    getStatus: () => ipcRenderer.invoke('db:getStatus'),
+  },
+
   // Products
   products: {
     getAll: () => ipcRenderer.invoke('products:getAll'),

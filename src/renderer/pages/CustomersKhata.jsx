@@ -1,6 +1,203 @@
 import React, { useState, useEffect } from 'react';
-import { Users, IndianRupee, Plus, Phone, MapPin, ArrowUpRight, ArrowDownLeft, CheckCircle, Clock } from 'lucide-react';
+import { Users, IndianRupee, Plus, Phone, MapPin, ArrowUpRight, ArrowDownLeft, CheckCircle, Clock, Printer, Search } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+
+function generateUdharReceiptHtml(customer, prevBalance, amountPaid, newBalance, paymentMode, referenceNo, notes, settings = {}) {
+  const receiptNo = `RCP-${Date.now().toString().slice(-6)}`;
+  const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  const timeStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Payment Receipt - ${receiptNo}</title>
+  <style>
+    @page {
+      size: 105mm 148mm;
+      margin: 6mm;
+    }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      color: #0f172a;
+      background: #ffffff;
+      margin: 0;
+      padding: 0;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .receipt-card {
+      border: 1.5px solid #0f172a;
+      border-radius: 6px;
+      padding: 12px 14px;
+    }
+    .header {
+      text-align: center;
+      border-bottom: 1.5px solid #0f172a;
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+    }
+    .biz-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: 0.5px;
+    }
+    .biz-sub {
+      font-size: 10px;
+      color: #475569;
+      font-weight: 600;
+    }
+    .biz-contact {
+      font-size: 9.5px;
+      color: #64748b;
+      margin-top: 2px;
+    }
+    .doc-badge {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 2px 10px;
+      background: #0f172a;
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+    }
+    .info-grid {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 10.5px;
+    }
+    .info-col strong {
+      color: #334155;
+    }
+    .ledger-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 12px;
+      font-size: 11px;
+    }
+    .ledger-table td {
+      padding: 5px 8px;
+      border: 1px solid #cbd5e1;
+    }
+    .ledger-table .label-cell {
+      font-weight: 600;
+      color: #334155;
+      background: #f8fafc;
+      width: 60%;
+    }
+    .ledger-table .val-cell {
+      text-align: right;
+      font-weight: 700;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .received-row {
+      background: #f0fdf4 !important;
+    }
+    .received-row td {
+      border: 1.5px solid #16a34a;
+      color: #15803d;
+      font-size: 13px !important;
+    }
+    .due-row {
+      background: #fef2f2 !important;
+    }
+    .due-row td {
+      border: 1.5px solid #dc2626;
+      color: #b91c1c;
+      font-size: 13px !important;
+    }
+    .notes-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 10px;
+      color: #475569;
+      margin-bottom: 12px;
+    }
+    .footer-sign {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-top: 14px;
+      padding-top: 6px;
+    }
+    .sign-box {
+      text-align: right;
+      font-size: 10px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+  </style>
+</head>
+<body>
+  <div class="receipt-card">
+    <div class="header">
+      <div class="biz-title">${settings.business_name || 'JAIN HOSIERY'}</div>
+      <div class="biz-sub">${settings.trade_name || 'Wholesale & Retail Hosiery Specialist'}</div>
+      <div class="biz-contact">${settings.address_line1 || 'Gandhi Nagar, Main Road'}, ${settings.address_line2 || 'Delhi - 110031'} | Ph: ${settings.phone || '+91 98765 43210'}</div>
+      <div class="doc-badge">CASH RECEIVED ON UDHAAR / रसीद</div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-col">
+        <div><strong>Customer:</strong> <span style="font-size: 12px; font-weight: 700;">${customer.name}</span></div>
+        ${customer.phone ? `<div><strong>Phone:</strong> ${customer.phone}</div>` : ''}
+        ${customer.address ? `<div><strong>Address:</strong> ${customer.address}</div>` : ''}
+      </div>
+      <div class="info-col" style="text-align: right;">
+        <div><strong>Receipt No:</strong> <span style="font-family: monospace; font-weight: 700;">${receiptNo}</span></div>
+        <div><strong>Date:</strong> ${dateStr}</div>
+        <div><strong>Time:</strong> ${timeStr}</div>
+      </div>
+    </div>
+
+    <table class="ledger-table">
+      <tbody>
+        <tr>
+          <td class="label-cell">Previous Udhar Balance (पिछला बकाया):</td>
+          <td class="val-cell">₹${prevBalance.toFixed(2)}</td>
+        </tr>
+        <tr class="received-row">
+          <td class="label-cell" style="color: #15803d; font-weight: 800;">
+            Amount Received (प्राप्त राशि):<br>
+            <span style="font-size: 9px; font-weight: 600;">Mode: ${paymentMode}${referenceNo ? ` | Ref: ${referenceNo}` : ''}</span>
+          </td>
+          <td class="val-cell">₹${amountPaid.toFixed(2)}</td>
+        </tr>
+        <tr class="due-row">
+          <td class="label-cell" style="color: #b91c1c; font-weight: 800;">Remaining Balance Due (शेष बकाया):</td>
+          <td class="val-cell">₹${newBalance.toFixed(2)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    ${notes ? `
+      <div class="notes-box">
+        <strong>Remarks / Notes:</strong> ${notes}
+      </div>
+    ` : ''}
+
+    <div class="footer-sign">
+      <div style="font-size: 9px; color: #64748b;">
+        Thank you for your payment!<br>
+        भुगतान के लिए धन्यवाद!
+      </div>
+      <div class="sign-box">
+        For ${settings.business_name || 'Jain Hosiery'}<br><br><br>
+        Authorized Signatory
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
 
 export default function CustomersKhata() {
   const { t } = useApp();
@@ -12,10 +209,12 @@ export default function CustomersKhata() {
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
+  const [printReceipt, setPrintReceipt] = useState(true);
 
   // Forms
   const [newCust, setNewCust] = useState({ name: '', phone: '', address: '', state: 'Delhi', gstin: '', initial_balance: '' });
   const [payData, setPayData] = useState({ amount: '', payment_mode: 'CASH', reference_no: '', notes: '' });
+  const [searchQuery, setSearchQuery] = useState('');
 
   const fetchCustomers = async () => {
     setLoading(true);
@@ -76,19 +275,46 @@ export default function CustomersKhata() {
 
   const handleRecordPayment = async (e) => {
     e.preventDefault();
-    if (!payData.amount || parseFloat(payData.amount) <= 0) {
+    const paid = parseFloat(payData.amount);
+    if (!paid || paid <= 0) {
       alert('Please enter a valid amount');
       return;
     }
 
     try {
+      const prevBal = Number(selectedCustomer?.current_balance || 0);
+      const newBal = Math.max(0, prevBal - paid);
+
       await window.api.parties.recordPayment({
         partyId: selectedCustomer.id,
-        amount: parseFloat(payData.amount),
+        amount: paid,
         paymentMode: payData.payment_mode, // CASH or ONLINE
         referenceNo: payData.reference_no,
         notes: payData.notes,
       });
+
+      // Optional print receipt for cash received on udhar
+      if (printReceipt && window.api?.print?.printBill) {
+        let settings = {};
+        try {
+          if (window.api?.settings?.get) {
+            settings = await window.api.settings.get();
+          }
+        } catch (sErr) {}
+
+        const receiptHtml = generateUdharReceiptHtml(
+          selectedCustomer,
+          prevBal,
+          paid,
+          newBal,
+          payData.payment_mode,
+          payData.reference_no,
+          payData.notes,
+          settings
+        );
+
+        await window.api.print.printBill(receiptHtml);
+      }
 
       setShowPayModal(false);
       setPayData({ amount: '', payment_mode: 'CASH', reference_no: '', notes: '' });
@@ -99,6 +325,17 @@ export default function CustomersKhata() {
   };
 
   const totalUdhar = customers.reduce((acc, c) => acc + (c.current_balance > 0 ? c.current_balance : 0), 0);
+
+  const filteredCustomers = customers.filter((c) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (c.name && c.name.toLowerCase().includes(q)) ||
+      (c.phone && c.phone.toLowerCase().includes(q)) ||
+      (c.address && c.address.toLowerCase().includes(q)) ||
+      (c.gstin && c.gstin.toLowerCase().includes(q))
+    );
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -128,26 +365,58 @@ export default function CustomersKhata() {
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 2fr', gap: 20 }}>
         {/* Customer Directory */}
         <div className="card" style={{ padding: 0, overflow: 'hidden', height: 'fit-content' }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', fontWeight: 700, fontSize: 13, color: '#94a3b8' }}>
-            CUSTOMERS ({customers.length})
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', fontWeight: 700, fontSize: 13, color: '#94a3b8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>CUSTOMERS ({filteredCustomers.length})</span>
+            {searchQuery && (
+              <span style={{ fontSize: 11, color: '#38bdf8' }}>Filtered ({filteredCustomers.length} of {customers.length})</span>
+            )}
+          </div>
+
+          {/* Search Bar */}
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-color)', background: 'rgba(0, 0, 0, 0.15)' }}>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--text-dim)' }} />
+              <input 
+                type="text" 
+                className="input input-sm" 
+                placeholder="Search by name, phone, address..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ paddingLeft: 30, width: '100%', fontSize: 12 }}
+              />
+              {searchQuery && (
+                <button 
+                  type="button" 
+                  onClick={() => setSearchQuery('')}
+                  style={{ position: 'absolute', right: 8, background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 11 }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
 
           <div style={{ maxHeight: 600, overflowY: 'auto' }}>
-            {customers.map((c) => (
-              <div 
-                key={c.id}
-                onClick={() => loadStatement(c.id)}
-                style={{
-                  padding: '12px 16px',
-                  borderBottom: '1px solid #1a2436',
-                  cursor: 'pointer',
-                  background: selectedCustomer?.id === c.id ? '#172338' : 'transparent',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  transition: 'background 0.15s ease'
-                }}
-              >
+            {filteredCustomers.length === 0 ? (
+              <div style={{ padding: '24px 16px', textAlign: 'center', color: '#64748b', fontSize: 12.5 }}>
+                No customers found matching "{searchQuery}"
+              </div>
+            ) : (
+              filteredCustomers.map((c) => (
+                <div 
+                  key={c.id}
+                  onClick={() => loadStatement(c.id)}
+                  style={{
+                    padding: '12px 16px',
+                    borderBottom: '1px solid #1a2436',
+                    cursor: 'pointer',
+                    background: selectedCustomer?.id === c.id ? '#172338' : 'transparent',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    transition: 'background 0.15s ease'
+                  }}
+                >
                 <div>
                   <strong style={{ color: '#fff', fontSize: 14 }}>{c.name}</strong>
                   {c.phone && <div style={{ fontSize: 12, color: '#94a3b8' }}>{c.phone}</div>}
@@ -167,7 +436,8 @@ export default function CustomersKhata() {
                   </div>
                 </div>
               </div>
-            ))}
+            ))
+          )}
           </div>
         </div>
 
@@ -423,6 +693,33 @@ export default function CustomersKhata() {
                     value={payData.notes}
                     onChange={(e) => setPayData({ ...payData, notes: e.target.value })}
                   />
+                </div>
+
+                {/* Optional Print Receipt Checkbox */}
+                <div style={{
+                  marginTop: 10,
+                  padding: '10px 14px',
+                  background: 'rgba(59, 130, 246, 0.08)',
+                  border: '1px solid rgba(59, 130, 246, 0.25)',
+                  borderRadius: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10
+                }}>
+                  <input 
+                    type="checkbox" 
+                    id="printUdharReceiptCheck"
+                    checked={printReceipt}
+                    onChange={(e) => setPrintReceipt(e.target.checked)}
+                    style={{ width: 17, height: 17, cursor: 'pointer', accentColor: '#2563eb' }}
+                  />
+                  <label 
+                    htmlFor="printUdharReceiptCheck" 
+                    style={{ fontSize: 13, cursor: 'pointer', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: 6, userSelect: 'none' }}
+                  >
+                    <Printer size={15} color="#3b82f6" />
+                    Print Cash Receipt for Udhar (उधार रसीद प्रिंट करें)
+                  </label>
                 </div>
               </div>
               <div className="modal-footer">

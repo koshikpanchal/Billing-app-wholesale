@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Truck, Plus, IndianRupee, Package, Phone, CheckCircle, ArrowRight } from 'lucide-react';
+import { Truck, Plus, IndianRupee, Package, Phone, CheckCircle, ArrowRight, Search } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 export default function SuppliersKhata() {
@@ -18,6 +18,7 @@ export default function SuppliersKhata() {
   // Forms
   const [newSupp, setNewSupp] = useState({ name: '', phone: '', address: '', state: 'Punjab', gstin: '', initial_balance: '' });
   const [payData, setPayData] = useState({ amount: '', payment_mode: 'CASH', reference_no: '', notes: '' });
+  const [searchQuery, setSearchQuery] = useState('');
 
   // New Purchase Form
   const [purchaseBillNo, setPurchaseBillNo] = useState('');
@@ -172,6 +173,17 @@ export default function SuppliersKhata() {
 
   const totalOwed = suppliers.reduce((acc, s) => acc + (s.current_balance < 0 ? Math.abs(s.current_balance) : 0), 0);
 
+  const filteredSuppliers = suppliers.filter((s) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (s.name && s.name.toLowerCase().includes(q)) ||
+      (s.phone && s.phone.toLowerCase().includes(q)) ||
+      (s.address && s.address.toLowerCase().includes(q)) ||
+      (s.gstin && s.gstin.toLowerCase().includes(q))
+    );
+  });
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header Bar */}
@@ -200,28 +212,60 @@ export default function SuppliersKhata() {
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 2fr', gap: 20 }}>
         {/* Supplier List */}
         <div className="card" style={{ padding: 0, overflow: 'hidden', height: 'fit-content' }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', fontWeight: 700, fontSize: 13, color: '#94a3b8' }}>
-            MERCHANTS & MILLS ({suppliers.length})
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', fontWeight: 700, fontSize: 13, color: '#94a3b8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>MERCHANTS & MILLS ({filteredSuppliers.length})</span>
+            {searchQuery && (
+              <span style={{ fontSize: 11, color: '#c084fc' }}>Filtered ({filteredSuppliers.length} of {suppliers.length})</span>
+            )}
+          </div>
+
+          {/* Search Bar */}
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-color)', background: 'rgba(0, 0, 0, 0.15)' }}>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--text-dim)' }} />
+              <input 
+                type="text" 
+                className="input input-sm" 
+                placeholder="Search merchant by name, phone, city..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ paddingLeft: 30, width: '100%', fontSize: 12 }}
+              />
+              {searchQuery && (
+                <button 
+                  type="button" 
+                  onClick={() => setSearchQuery('')}
+                  style={{ position: 'absolute', right: 8, background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 11 }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
 
           <div style={{ maxHeight: 600, overflowY: 'auto' }}>
-            {suppliers.map((s) => {
-              const owed = Math.abs(s.current_balance);
-              return (
-                <div 
-                  key={s.id}
-                  onClick={() => loadStatement(s.id)}
-                  style={{
-                    padding: '12px 16px',
-                    borderBottom: '1px solid #1a2436',
-                    cursor: 'pointer',
-                    background: selectedSupplier?.id === s.id ? '#172338' : 'transparent',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    transition: 'background 0.15s ease'
-                  }}
-                >
+            {filteredSuppliers.length === 0 ? (
+              <div style={{ padding: '24px 16px', textAlign: 'center', color: '#64748b', fontSize: 12.5 }}>
+                No merchants found matching "{searchQuery}"
+              </div>
+            ) : (
+              filteredSuppliers.map((s) => {
+                const owed = Math.abs(s.current_balance);
+                return (
+                  <div 
+                    key={s.id}
+                    onClick={() => loadStatement(s.id)}
+                    style={{
+                      padding: '12px 16px',
+                      borderBottom: '1px solid #1a2436',
+                      cursor: 'pointer',
+                      background: selectedSupplier?.id === s.id ? '#172338' : 'transparent',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      transition: 'background 0.15s ease'
+                    }}
+                  >
                   <div>
                     <strong style={{ color: '#fff', fontSize: 14 }}>{s.name}</strong>
                     {s.address && <div style={{ fontSize: 12, color: '#94a3b8' }}>{s.address}</div>}
@@ -242,7 +286,8 @@ export default function SuppliersKhata() {
                   </div>
                 </div>
               );
-            })}
+            })
+          )}
           </div>
         </div>
 

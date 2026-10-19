@@ -1,6 +1,7 @@
+require('dotenv').config();
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const { initDatabase } = require('./database/db');
+const { initDatabase, getDb, getDatabasePath } = require('./database/db');
 
 // Repositories
 const productRepo = require('./database/repositories/productRepo');
@@ -71,6 +72,25 @@ app.on('window-all-closed', () => {
 });
 
 function setupIpcHandlers() {
+  // --- Database Status ---
+  ipcMain.handle('db:getStatus', () => {
+    try {
+      const database = getDb();
+      return {
+        connected: !!database,
+        dbName: process.env.DB_NAME || 'jain_hosiery.sqlite',
+        dbUser: process.env.DB_USER || 'jain_admin',
+        dbPath: getDatabasePath(),
+      };
+    } catch (err) {
+      return {
+        connected: false,
+        error: err.message,
+        dbName: process.env.DB_NAME || 'jain_hosiery.sqlite',
+      };
+    }
+  });
+
   // --- Products ---
   ipcMain.handle('products:getAll', () => productRepo.getAllProducts());
   ipcMain.handle('products:search', (_, query) => productRepo.searchProducts(query));

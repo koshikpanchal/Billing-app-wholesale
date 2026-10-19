@@ -85,7 +85,14 @@ function updateProduct(id, product) {
 
 function deleteProduct(id) {
   const db = getDb();
-  db.prepare('UPDATE products SET is_active = 0 WHERE id = ?').run(id);
+  const txn = db.transaction(() => {
+    // Unlink foreign keys from line items so historical records remain intact
+    db.prepare('UPDATE invoice_items SET product_id = NULL WHERE product_id = ?').run(id);
+    db.prepare('UPDATE purchase_items SET product_id = NULL WHERE product_id = ?').run(id);
+    // Permanently delete row from products table in SQLite
+    db.prepare('DELETE FROM products WHERE id = ?').run(id);
+  });
+  txn();
   return { success: true };
 }
 
